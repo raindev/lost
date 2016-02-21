@@ -1,21 +1,24 @@
 extern crate curl;
+extern crate regex;
 
 use curl::http;
 use curl::http::{Handle, Response};
 use std::io::{self, BufRead};
+use regex::Regex;
 
 fn main() {
     let stdin = io::stdin();
     let mut handle = http::handle();
     let mut line_num = 0;
+    let url_regex = Regex::new(r"https?://\w+.\w+[^\s]+").unwrap();
     for line in stdin.lock().lines() {
         line_num += 1;
         let line = line.unwrap();
-        if line.is_empty() {
-            continue;
+        for cap in url_regex.captures_iter(&line) {
+            let url = cap.at(0).unwrap();
+            url_error(&mut handle, url)
+                .map(|error| println!("{} {} {}", line_num, url, error));
         }
-        url_error(&mut handle, &line)
-            .map(|error| println!("{} {} {}", line_num, line, error));
     }
 }
 

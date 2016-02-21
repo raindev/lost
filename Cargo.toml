@@ -5,3 +5,4 @@ authors = ["Andrew Barchuk <raindev@icloud.com>"]
 
 [dependencies]
 curl = "0.2.16"
+regex = "0.1.52"
