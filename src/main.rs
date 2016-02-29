@@ -3,17 +3,28 @@ extern crate regex;
 
 use curl::http;
 use curl::http::{Handle, Response};
-use std::io::{self, BufRead};
+use std::fs::File;
+use std::env;
+use std::io::{self, BufRead, Read, Result};
+use std::string::ToString;
 use regex::Regex;
 
 fn main() {
+    let mut input = String::new();
+    let mut args = env::args();
     let stdin = io::stdin();
+    let lines;
+    if args.len() > 1 {
+        File::open(args.nth(1).unwrap()).unwrap().read_to_string(&mut input).unwrap();
+        lines = Box::new(input.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>;
+    } else {
+        lines = Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>;
+    }
     let mut handle = http::handle();
     let mut line_num = 0;
     let url_regex = Regex::new(r"https?://\w+.\w+[^\s]+").unwrap();
-    for line in stdin.lock().lines() {
+    for line in lines {
         line_num += 1;
-        let line = line.unwrap();
         for cap in url_regex.captures_iter(&line) {
             let url = cap.at(0).unwrap();
             url_error(&mut handle, url)
