@@ -13,16 +13,22 @@ fn main() {
     let mut input = String::new();
     let mut args = env::args();
     let stdin = io::stdin();
-    let lines;
-    if args.len() > 1 {
-        File::open(args.nth(1).unwrap()).unwrap().read_to_string(&mut input).unwrap();
-        lines = Box::new(input.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>;
-    } else {
-        lines = Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>;
-    }
     let mut handle = http::handle();
+    let lines =
+    if args.len() > 1 {
+        let target = args.nth(1).unwrap();
+        if target.starts_with("http") {
+            input = url_body(&mut handle, &target);
+            Box::new(input.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>
+        } else {
+            File::open(target).unwrap().read_to_string(&mut input).unwrap();
+            Box::new(input.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>
+        }
+    } else {
+        Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>
+    };
     let mut line_num = 0;
-    let url_regex = Regex::new(r"https?://\w+.\w+[^\s]+").unwrap();
+    let url_regex = Regex::new("https?://\\w+.\\w+[^\\s'\"]+").unwrap();
     for line in lines {
         line_num += 1;
         for cap in url_regex.captures_iter(&line) {
@@ -31,6 +37,15 @@ fn main() {
                 .map(|error| println!("{} {} {}", line_num, url, error));
         }
     }
+}
+
+fn url_body(handle: &mut Handle, url: &str) -> String {
+    String::from_utf8_lossy(handle
+                            .get(url)
+                            .follow_redirects(true)
+                            .exec()
+                            .unwrap()
+                            .get_body()).into_owned()
 }
 
 fn url_error(handle: &mut Handle, url: &str) -> Option<String> {
