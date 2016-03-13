@@ -27,6 +27,10 @@ fn main() {
     } else {
         Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>
     };
+    test_links(lines, &mut handle);
+}
+
+fn test_links<'a>(lines: Box<Iterator<Item=String> + 'a>, mut handle: &mut Handle) {
     let mut line_num = 0;
     let url_regex = Regex::new("https?://\\w+.\\w+[^\\s'\"]+").unwrap();
     for line in lines {
