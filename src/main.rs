@@ -16,7 +16,9 @@ fn main() {
     let mut recursive = false;
     let mut verbose = false;
     let mut target = None;
-    for arg in env::args() {
+    let mut args = env::args();
+    args.next();
+    for arg in args {
         if arg == "-R" {
             recursive = true
         } else if arg == "-v" {
