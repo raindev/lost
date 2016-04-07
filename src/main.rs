@@ -1,39 +1,28 @@
 extern crate curl;
 extern crate regex;
 extern crate url;
+extern crate clap;
 
 use curl::http;
 use curl::http::{Handle, Response};
 use std::fs::File;
-use std::env;
 use std::io::{self, BufRead, Read, Result};
 use std::string::ToString;
 use regex::Regex;
 use url::Url;
+use clap::{App, Arg, ArgMatches};
 
 fn main() {
+    let args = parse_args();
     let mut input = String::new();
-    let mut recursive = false;
-    let mut verbose = false;
-    let mut target = None;
-    let mut args = env::args();
-    args.next();
-    for arg in args {
-        if arg == "-R" {
-            recursive = true
-        } else if arg == "-v" {
-            verbose = true;
-        } else {
-            target = Some(arg);
-        }
-    }
+    let target = args.value_of("INPUT");
     let stdin = io::stdin();
     let mut handle = http::handle();
     let mut location = None;
     let lines =
     if target.is_some() {
         let target = target.unwrap();
-        if recursive || target.starts_with("http") {
+        if target.starts_with("http") {
             input = url_body(&mut handle, &target);
             location = Some(target);
             Box::new(input.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>
@@ -44,7 +33,31 @@ fn main() {
     } else {
         Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>
     };
-    test_links(recursive, verbose, &location, lines, &mut handle);
+    test_links(
+        args.is_present("recursive"),
+        args.is_present("verbose"),
+        &location.map(ToString::to_string),
+        lines,
+        &mut handle);
+}
+
+fn parse_args<'a>() -> ArgMatches<'a> {
+    App::new("lost")
+        .version(env!("CARGO_PKG_VERSION"))
+        .author("Andrew \"raindev\" Barchuk <andrew@raindev.io>")
+        .about("Search for broken links")
+        .arg(Arg::with_name("verbose")
+             .short("v")
+             .long("verbose")
+             .help("Verbose mode"))
+        .arg(Arg::with_name("recursive")
+             .short("R")
+             .long("recursive")
+             .help("Traverse URLs on the same domain recursively. Works for web pages only"))
+        .arg(Arg::with_name("INPUT")
+             .help(concat!("Source of input. Could be file or URL address",
+                   "{n}(needs explicit http[s] prefix). stdin is assumed if omitted.")))
+        .get_matches()
 }
 
 fn test_links<'a>(recursive: bool,
@@ -62,7 +75,9 @@ fn test_links<'a>(recursive: bool,
                 println!("Testing {}", url);
             }
             match url_error(&mut handle, url) {
-                Some(ref error) => println!("{}{} {} {}", location.clone().map_or("".to_string(), |l| l + ":"), line_num, url, error),
+                Some(ref error) => println!("{}{} {} {}",
+                                            location.clone().map_or("".to_string(), |l| l + ":"),
+                                            line_num, url, error),
                 None if recursive => {
                     let parent_url = Url::parse(&location.clone().unwrap()).unwrap();
                     let current_url = Url::parse(url.clone()).unwrap();
@@ -73,7 +88,8 @@ fn test_links<'a>(recursive: bool,
                         test_links( recursive,
                                     verbose,
                                     &location.clone().map(|l| l + "->" + url),
-                                    Box::new(url_body.lines().map(ToString::to_string)) as Box<Iterator<Item=String>>,
+                                    Box::new(url_body.lines().map(ToString::to_string))
+                                        as Box<Iterator<Item=String>>,
                                     handle);
                     }
                 },
