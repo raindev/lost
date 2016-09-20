@@ -3,8 +3,7 @@ extern crate regex;
 extern crate url;
 extern crate clap;
 
-use curl::http;
-use curl::http::{Handle, Response};
+use curl::easy::Easy;
 use std::fs::File;
 use std::io::{self, BufRead, Read, Result};
 use std::string::ToString;
@@ -17,7 +16,8 @@ fn main() {
     let mut input = String::new();
     let target = args.value_of("INPUT");
     let stdin = io::stdin();
-    let mut handle = http::handle();
+    let mut handle = Easy::new();
+    handle.follow_location(true).unwrap();
     let mut location = None;
     let lines =
     if target.is_some() {
@@ -64,7 +64,7 @@ fn test_links<'a>(recursive: bool,
                   verbose: bool,
                   location: &Option<String>,
                   lines: Box<Iterator<Item=String> + 'a>,
-                  mut handle: &mut Handle) {
+                  mut handle: &mut Easy) {
     let mut line_num = 0;
     let url_regex = Regex::new("https?://\\w+.\\w+[^\\s'\"]+").unwrap();
     for line in lines {
@@ -99,27 +99,35 @@ fn test_links<'a>(recursive: bool,
     }
 }
 
-fn url_body(handle: &mut Handle, url: &str) -> String {
-    String::from_utf8_lossy(handle
-                            .get(url)
-                            .follow_redirects(true)
-                            .exec()
-                            .unwrap()
-                            .get_body()).into_owned()
-}
+fn url_body(handle: &mut Easy, url: &str) -> String {
+    handle.url(url).unwrap();
 
-fn url_error(handle: &mut Handle, url: &str) -> Option<String> {
-    let result = handle
-        .head(url.trim())
-        .follow_redirects(true)
-        .exec();
-    match result {
-        Ok(ref resp) if !success(&resp) => Some(resp.get_code().to_string()),
-        Err(err) => Some(err.to_string()),
-        _ => None
+    let mut result = String::new();
+    // block is needed to drop `transfer` together with closure
+    // allowing it to modify `result` without outliving the variable
+    {
+        let mut transfer = handle.transfer();
+        transfer.write_function(|body| {
+            result = String::from_utf8_lossy(body).into_owned();
+            Ok(body.len())
+        }).unwrap();
+        transfer.perform().unwrap();
     }
+    result
 }
 
-fn success(response: &Response) -> bool {
-    response.get_code() >= 200 && response.get_code() < 300
+fn url_error(handle: &mut Easy, url: &str) -> Option<String> {
+    handle.url(url.trim()).unwrap();
+    handle.nobody(true).unwrap();
+    handle.perform().err().map(|err| err.to_string()).or_else(|| {
+        match handle.response_code() {
+                Ok(status) if !success(status) => Some(status.to_string()),
+                Err(err) => Some(err.to_string()),
+                _ => None
+            }
+    })
+}
+
+fn success(status: u32) -> bool {
+    status >= 200 && status < 300
 }
