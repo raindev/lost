@@ -6,12 +6,22 @@ extern crate clap;
 use curl::easy::Easy;
 use std::fs::File;
 use std::io::{self, BufRead, Read, Result};
+use std::process;
 use std::string::ToString;
 use regex::Regex;
 use url::Url;
 use clap::{App, Arg, ArgMatches};
 
 fn main() {
+    if run() == BrokenLinks::Found {
+        process::exit(1);
+    }
+}
+
+#[derive(PartialEq)]
+enum BrokenLinks { None, Found }
+
+fn run() -> BrokenLinks {
     let args = parse_args();
     let mut input = String::new();
     let target = args.value_of("INPUT");
@@ -33,12 +43,13 @@ fn main() {
     } else {
         Box::new(stdin.lock().lines().map(Result::unwrap)) as Box<Iterator<Item=String>>
     };
-    test_links(
+    let result = test_links(
         args.is_present("recursive"),
         args.is_present("verbose"),
         &location.map(ToString::to_string),
         lines,
         &mut handle);
+    result
 }
 
 fn parse_args<'a>() -> ArgMatches<'a> {
@@ -64,9 +75,10 @@ fn test_links<'a>(recursive: bool,
                   verbose: bool,
                   location: &Option<String>,
                   lines: Box<Iterator<Item=String> + 'a>,
-                  mut handle: &mut Easy) {
-    let mut line_num = 0;
+                  mut handle: &mut Easy) -> BrokenLinks {
     let url_regex = Regex::new("https?://\\w+.\\w+[^\\s'\"]+").unwrap();
+    let mut line_num = 0;
+    let mut result = BrokenLinks::None;
     for line in lines {
         line_num += 1;
         for cap in url_regex.captures_iter(&line) {
@@ -75,9 +87,11 @@ fn test_links<'a>(recursive: bool,
                 println!("Testing {}", url);
             }
             match url_error(&mut handle, url) {
-                Some(ref error) => println!("{}{} {} {}",
-                                            location.clone().map_or("".to_string(), |l| l + ":"),
-                                            line_num, url, error),
+                Some(ref error) => {
+                    println!("{}{} {} {}", location.clone().map_or("".to_string(), |l| l + ":"),
+                                           line_num, url, error);
+                    result = BrokenLinks::Found;
+                },
                 None if recursive => {
                     let parent_url = Url::parse(&location.clone().unwrap()).unwrap();
                     let current_url = Url::parse(url.clone()).unwrap();
@@ -85,18 +99,21 @@ fn test_links<'a>(recursive: bool,
                     let url_host = current_url.host();
                     if parent_host == url_host {
                         let url_body = url_body(&mut handle, &url);
-                        test_links( recursive,
+                        if BrokenLinks::Found == test_links(recursive,
                                     verbose,
                                     &location.clone().map(|l| l + "->" + url),
                                     Box::new(url_body.lines().map(ToString::to_string))
                                         as Box<Iterator<Item=String>>,
-                                    handle);
+                                        handle) {
+                            result = BrokenLinks::Found;
+                        }
                     }
                 },
                 _ => ()
             }
         }
     }
+    return result;
 }
 
 fn url_body(handle: &mut Easy, url: &str) -> String {
